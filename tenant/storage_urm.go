@@ -3,6 +3,7 @@ package tenant
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/influxdata/influxdb"
 	"github.com/influxdata/influxdb/kv"
@@ -13,7 +14,57 @@ var (
 	urmByUserIndexBucket = []byte("userresourcemappingsbyuserindexv1")
 )
 
+func getBucket(rt influxdb.ResourceType) ([]byte, error) {
+	var bucket []byte
+	switch rt {
+	case influxdb.UsersResourceType:
+		bucket = userBucket
+	case influxdb.OrgsResourceType:
+		bucket = organizationBucket
+	case influxdb.BucketsResourceType:
+		bucket = bucketBucket
+	default:
+		return nil, &influxdb.Error{
+			Code: influxdb.EInternal,
+			Msg:  fmt.Sprintf("cannot get bucket of resource type: %v", rt),
+		}
+	}
+	return bucket, nil
+}
+
+func errNotFound(rt influxdb.ResourceType) error {
+	switch rt {
+	case influxdb.UsersResourceType:
+		return ErrUserNotFound
+	case influxdb.OrgsResourceType:
+		return ErrOrgNotFound
+	case influxdb.BucketsResourceType:
+		return ErrBucketNotFound
+	default:
+		return &influxdb.Error{
+			Code: influxdb.EInternal,
+			Msg:  fmt.Sprintf("cannot get bucket of resource type: %v", rt),
+		}
+	}
+}
+
 func (s *Store) CreateURM(ctx context.Context, tx kv.Tx, urm *influxdb.UserResourceMapping) error {
+	resBucket, err := getBucket(urm.ResourceType)
+	if err != nil {
+		return err
+	}
+	if _, err := s.get(ctx, tx, userBucket, urm.UserID); err != nil {
+		if kv.IsNotFound(err) {
+			return errNotFound(influxdb.UsersResourceType)
+		}
+		return err
+	}
+	if _, err := s.get(ctx, tx, resBucket, urm.ResourceID); err != nil {
+		if kv.IsNotFound(err) {
+			return errNotFound(urm.ResourceType)
+		}
+		return err
+	}
 	if err := s.uniqueUserResourceMapping(ctx, tx, urm); err != nil {
 		return err
 	}

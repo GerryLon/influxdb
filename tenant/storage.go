@@ -3,7 +3,6 @@ package tenant
 import (
 	"context"
 	"encoding/json"
-
 	"github.com/influxdata/influxdb"
 	"github.com/influxdata/influxdb/kit/tracing"
 	"github.com/influxdata/influxdb/kv"
@@ -114,13 +113,13 @@ func (s *Store) generateSafeID(ctx context.Context, tx kv.Tx, bucket []byte) (in
 	return influxdb.InvalidID(), ErrFailureGeneratingID
 }
 
-func (s *Store) uniqueID(ctx context.Context, tx kv.Tx, bucket []byte, id influxdb.ID) error {
+func (s *Store) get(ctx context.Context, tx kv.Tx, bucket []byte, id influxdb.ID) ([]byte, error) {
 	span, _ := tracing.StartSpanFromContext(ctx)
 	defer span.Finish()
 
 	encodedID, err := id.Encode()
 	if err != nil {
-		return &influxdb.Error{
+		return nil, &influxdb.Error{
 			Code: influxdb.EInvalid,
 			Err:  err,
 		}
@@ -128,13 +127,16 @@ func (s *Store) uniqueID(ctx context.Context, tx kv.Tx, bucket []byte, id influx
 
 	b, err := tx.Bucket(bucket)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	_, err = b.Get(encodedID)
+	return b.Get(encodedID)
+}
+
+func (s *Store) uniqueID(ctx context.Context, tx kv.Tx, bucket []byte, id influxdb.ID) error {
+	_, err := s.get(ctx, tx, bucket, id)
 	if kv.IsNotFound(err) {
 		return nil
 	}
-
 	return NotUniqueIDError
 }

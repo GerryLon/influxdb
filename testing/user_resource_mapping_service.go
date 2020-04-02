@@ -79,6 +79,43 @@ func UserResourceMappingService(
 	}
 }
 
+func baseUserResourceFields() UserResourceFields {
+	return UserResourceFields{
+		Users: []*platform.User{
+			{
+				Name: "user1",
+				ID:   MustIDBase16(userOneID),
+			},
+			{
+				Name: "user2",
+				ID:   MustIDBase16(userTwoID),
+			},
+		},
+		Organizations: []*platform.Organization{
+			{
+				Name: "org1",
+				ID:   MustIDBase16(orgOneID),
+			},
+			{
+				Name: "org2",
+				ID:   MustIDBase16(orgTwoID),
+			},
+		},
+		Buckets: []*platform.Bucket{
+			{
+				Name:  "bucket1",
+				ID:    MustIDBase16(bucketOneID),
+				OrgID: MustIDBase16(orgOneID),
+			},
+			{
+				Name:  "bucket2",
+				ID:    MustIDBase16(bucketTwoID),
+				OrgID: MustIDBase16(orgOneID),
+			},
+		},
+	}
+}
+
 func CreateUserResourceMapping(
 	init func(UserResourceFields, *testing.T) (platform.UserResourceMappingService, func()),
 	t *testing.T,
@@ -99,16 +136,18 @@ func CreateUserResourceMapping(
 	}{
 		{
 			name: "basic create user resource mapping",
-			fields: UserResourceFields{
-				UserResourceMappings: []*platform.UserResourceMapping{
+			fields: func() UserResourceFields {
+				f := baseUserResourceFields()
+				f.UserResourceMappings = []*platform.UserResourceMapping{
 					{
 						ResourceID:   MustIDBase16(bucketOneID),
 						UserID:       MustIDBase16(userOneID),
 						UserType:     platform.Member,
 						ResourceType: platform.BucketsResourceType,
 					},
-				},
-			},
+				}
+				return f
+			}(),
 			args: args{
 				mapping: &platform.UserResourceMapping{
 					ResourceID:   MustIDBase16(bucketTwoID),
@@ -136,28 +175,33 @@ func CreateUserResourceMapping(
 		},
 		{
 			name: "duplicate mappings are not allowed",
-			fields: UserResourceFields{
-				UserResourceMappings: []*platform.UserResourceMapping{
+			fields: func() UserResourceFields {
+				f := baseUserResourceFields()
+				f.UserResourceMappings = []*platform.UserResourceMapping{
 					{
-						ResourceID: MustIDBase16(bucketOneID),
-						UserID:     MustIDBase16(userOneID),
-						UserType:   platform.Member,
+						ResourceID:   MustIDBase16(bucketOneID),
+						UserID:       MustIDBase16(userOneID),
+						UserType:     platform.Member,
+						ResourceType: platform.BucketsResourceType,
 					},
-				},
-			},
+				}
+				return f
+			}(),
 			args: args{
 				mapping: &platform.UserResourceMapping{
-					ResourceID: MustIDBase16(bucketOneID),
-					UserID:     MustIDBase16(userOneID),
-					UserType:   platform.Member,
+					ResourceID:   MustIDBase16(bucketOneID),
+					UserID:       MustIDBase16(userOneID),
+					UserType:     platform.Member,
+					ResourceType: platform.BucketsResourceType,
 				},
 			},
 			wants: wants{
 				mappings: []*platform.UserResourceMapping{
 					{
-						ResourceID: MustIDBase16(bucketOneID),
-						UserID:     MustIDBase16(userOneID),
-						UserType:   platform.Member,
+						ResourceID:   MustIDBase16(bucketOneID),
+						UserID:       MustIDBase16(userOneID),
+						UserType:     platform.Member,
+						ResourceType: platform.BucketsResourceType,
 					},
 				},
 				//lint:ignore ST1005 Error is capitalized in the tested code.
@@ -215,15 +259,18 @@ func DeleteUserResourceMapping(
 	}{
 		{
 			name: "basic delete user resource mapping",
-			fields: UserResourceFields{
-				UserResourceMappings: []*platform.UserResourceMapping{
+			fields: func() UserResourceFields {
+				f := baseUserResourceFields()
+				f.UserResourceMappings = []*platform.UserResourceMapping{
 					{
-						ResourceID: MustIDBase16(bucketOneID),
-						UserID:     MustIDBase16(userOneID),
-						UserType:   platform.Member,
+						ResourceID:   MustIDBase16(bucketOneID),
+						UserID:       MustIDBase16(userOneID),
+						UserType:     platform.Member,
+						ResourceType: platform.BucketsResourceType,
 					},
-				},
-			},
+				}
+				return f
+			}(),
 			args: args{
 				resourceID: MustIDBase16(bucketOneID),
 				userID:     MustIDBase16(userOneID),
@@ -335,8 +382,9 @@ func FindUserResourceMappings(
 	}{
 		{
 			name: "basic find mappings",
-			fields: UserResourceFields{
-				UserResourceMappings: []*platform.UserResourceMapping{
+			fields: func() UserResourceFields {
+				f := baseUserResourceFields()
+				f.UserResourceMappings = []*platform.UserResourceMapping{
 					{
 						ResourceID:   MustIDBase16(bucketOneID),
 						UserID:       MustIDBase16(userOneID),
@@ -349,8 +397,9 @@ func FindUserResourceMappings(
 						UserType:     platform.Member,
 						ResourceType: platform.BucketsResourceType,
 					},
-				},
-			},
+				}
+				return f
+			}(),
 			args: args{
 				filter: platform.UserResourceMappingFilter{},
 			},
@@ -373,8 +422,9 @@ func FindUserResourceMappings(
 		},
 		{
 			name: "find mappings filtered by user",
-			fields: UserResourceFields{
-				UserResourceMappings: []*platform.UserResourceMapping{
+			fields: func() UserResourceFields {
+				f := baseUserResourceFields()
+				f.UserResourceMappings = []*platform.UserResourceMapping{
 					{
 						ResourceID:   MustIDBase16(bucketOneID),
 						UserID:       MustIDBase16(userOneID),
@@ -387,8 +437,9 @@ func FindUserResourceMappings(
 						UserType:     platform.Member,
 						ResourceType: platform.BucketsResourceType,
 					},
-				},
-			},
+				}
+				return f
+			}(),
 			args: args{
 				filter: platform.UserResourceMappingFilter{
 					UserID: MustIDBase16(userOneID),
@@ -407,8 +458,9 @@ func FindUserResourceMappings(
 		},
 		{
 			name: "find mappings filtered by resource",
-			fields: UserResourceFields{
-				UserResourceMappings: []*platform.UserResourceMapping{
+			fields: func() UserResourceFields {
+				f := baseUserResourceFields()
+				f.UserResourceMappings = []*platform.UserResourceMapping{
 					{
 						ResourceID:   MustIDBase16(bucketOneID),
 						UserID:       MustIDBase16(userOneID),
@@ -421,8 +473,9 @@ func FindUserResourceMappings(
 						UserType:     platform.Member,
 						ResourceType: platform.BucketsResourceType,
 					},
-				},
-			},
+				}
+				return f
+			}(),
 			args: args{
 				filter: platform.UserResourceMappingFilter{
 					ResourceID: MustIDBase16(bucketOneID),
@@ -441,8 +494,9 @@ func FindUserResourceMappings(
 		},
 		{
 			name: "find mappings filtered by user type",
-			fields: UserResourceFields{
-				UserResourceMappings: []*platform.UserResourceMapping{
+			fields: func() UserResourceFields {
+				f := baseUserResourceFields()
+				f.UserResourceMappings = []*platform.UserResourceMapping{
 					{
 						ResourceID:   MustIDBase16(bucketOneID),
 						UserID:       MustIDBase16(userOneID),
@@ -455,8 +509,9 @@ func FindUserResourceMappings(
 						UserType:     platform.Owner,
 						ResourceType: platform.BucketsResourceType,
 					},
-				},
-			},
+				}
+				return f
+			}(),
 			args: args{
 				filter: platform.UserResourceMappingFilter{
 					UserType: platform.Owner,
@@ -475,22 +530,18 @@ func FindUserResourceMappings(
 		},
 		{
 			name: "find mappings filtered by resource type",
-			fields: UserResourceFields{
-				UserResourceMappings: []*platform.UserResourceMapping{
-					{
-						ResourceID:   MustIDBase16(bucketOneID),
-						UserID:       MustIDBase16(userOneID),
-						UserType:     platform.Member,
-						ResourceType: platform.DashboardsResourceType,
-					},
+			fields: func() UserResourceFields {
+				f := baseUserResourceFields()
+				f.UserResourceMappings = []*platform.UserResourceMapping{
 					{
 						ResourceID:   MustIDBase16(bucketTwoID),
 						UserID:       MustIDBase16(userTwoID),
 						UserType:     platform.Member,
 						ResourceType: platform.BucketsResourceType,
 					},
-				},
-			},
+				}
+				return f
+			}(),
 			args: args{
 				filter: platform.UserResourceMappingFilter{
 					ResourceType: platform.BucketsResourceType,
