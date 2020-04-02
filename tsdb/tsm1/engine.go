@@ -1472,6 +1472,21 @@ var (
 
 func BlockTypeToInfluxQLDataType(typ byte) influxql.DataType { return blockToFieldType[typ&7] }
 
+var (
+	blockTypeFieldType = [8]cursors.FieldType{
+		BlockFloat64:   cursors.Float,
+		BlockInteger:   cursors.Integer,
+		BlockBoolean:   cursors.Boolean,
+		BlockString:    cursors.String,
+		BlockUnsigned:  cursors.Unsigned,
+		blockUndefined: cursors.Undefined,
+		6:              cursors.Undefined,
+		7:              cursors.Undefined,
+	}
+)
+
+func BlockTypeToFieldType(typ byte) cursors.FieldType { return blockTypeFieldType[typ&7] }
+
 // SeriesAndFieldFromCompositeKey returns the series key and the field key extracted from the composite key.
 func SeriesAndFieldFromCompositeKey(key []byte) ([]byte, []byte) {
 	sep := bytes.Index(key, KeyFieldSeparatorBytes)

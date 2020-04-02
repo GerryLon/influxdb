@@ -52,6 +52,11 @@ func (b *TimeRangeIterator) Key() []byte {
 	return b.iter.Key()
 }
 
+// Type reports the current block type.
+func (b *TimeRangeIterator) Type() byte {
+	return b.iter.Type()
+}
+
 // HasData reports true if the current key has data for the time range.
 func (b *TimeRangeIterator) HasData() bool {
 	if b.Err() != nil {

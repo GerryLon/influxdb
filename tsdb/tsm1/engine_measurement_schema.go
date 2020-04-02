@@ -149,6 +149,91 @@ func (e *Engine) MeasurementTagKeys(ctx context.Context, orgID, bucketID influxd
 	return e.tagKeysPredicate(ctx, orgID, bucketID, []byte(measurement), start, end, predicate)
 }
 
+func (e *Engine) MeasurementFields(ctx context.Context, orgID, bucketID influxdb.ID, measurement string, start, end int64, predicate influxql.Expr) (cursors.MeasurementFieldsCursor, error) {
+	if predicate == nil {
+		return e.fieldsNoPredicate(ctx, orgID, bucketID, []byte(measurement), start, end)
+	}
+
+	return nil, nil
+}
+
+func (e *Engine) fieldsNoPredicate(ctx context.Context, orgID influxdb.ID, bucketID influxdb.ID, measurement []byte, start int64, end int64) (cursors.MeasurementFieldsCursor, error) {
+	fieldTypes := make(map[string]cursors.FieldType)
+	orgBucket := tsdb.EncodeName(orgID, bucketID)
+
+	// TODO(edd): we need to clean up how we're encoding the prefix so that we
+	// don't have to remember to get it right everywhere we need to touch TSM data.
+	orgBucketEsc := models.EscapeMeasurement(orgBucket[:])
+
+	mt := models.Tags{models.NewTag(models.MeasurementTagKeyBytes, measurement)}
+	tsmKeyPrefix := mt.AppendHashKey(orgBucketEsc)
+
+	var stats cursors.CursorStats
+	var canceled bool
+
+	e.FileStore.ForEachFile(func(f TSMFile) bool {
+		// Check the context before touching each tsm file
+		select {
+		case <-ctx.Done():
+			canceled = true
+			return false
+		default:
+		}
+		if f.OverlapsTimeRange(start, end) && f.OverlapsKeyPrefixRange(tsmKeyPrefix, tsmKeyPrefix) {
+			// TODO(sgc): create f.TimeRangeIterator(minKey, maxKey, start, end)
+			iter := f.TimeRangeIterator(tsmKeyPrefix, start, end)
+			for i := 0; iter.Next(); i++ {
+				sfkey := iter.Key()
+				if !bytes.HasPrefix(sfkey, tsmKeyPrefix) {
+					// end of prefix
+					break
+				}
+
+				_, fieldKey := SeriesAndFieldFromCompositeKey(sfkey)
+				if _, ok := fieldTypes[string(fieldKey)]; ok {
+					continue
+				}
+
+				if iter.HasData() {
+					fieldTypes[string(fieldKey)] = BlockTypeToFieldType(iter.Type())
+				}
+			}
+			stats.Add(iter.Stats())
+		}
+		return true
+	})
+
+	if canceled {
+		// return cursors.NewStringSliceIteratorWithStats(nil, stats), ctx.Err()
+		return nil, ctx.Err()
+	}
+
+	// With performance in mind, we explicitly do not check the context
+	// while scanning the entries in the cache.
+	tsmKeyprefixStr := string(tsmKeyPrefix)
+	_ = e.Cache.ApplyEntryFn(func(sfkey string, entry *entry) error {
+		if !strings.HasPrefix(sfkey, tsmKeyprefixStr) {
+			return nil
+		}
+
+		// TODO(edd): consider the []byte() conversion here.
+		_, fieldKey := SeriesAndFieldFromCompositeKey([]byte(sfkey))
+		if _, ok := fieldTypes[string(fieldKey)]; ok {
+			return nil
+		}
+
+		stats.ScannedValues += entry.values.Len()
+		stats.ScannedBytes += entry.values.Len() * 8 // sizeof timestamp
+
+		if entry.values.Contains(start, end) {
+			fieldTypes[string(fieldKey)] = BlockTypeToFieldType(entry.BlockType())
+		}
+		return nil
+	})
+
+	return nil, nil
+}
+
 func AddMeasurementToExpr(measurement string, base influxql.Expr) influxql.Expr {
 	// \x00 = '<measurement>'
 	expr := &influxql.BinaryExpr{
