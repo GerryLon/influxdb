@@ -8,23 +8,7 @@ import (
 // the provided key. It is used to determine if each key has data which exists
 // within a specified time interval.
 type TimeRangeIterator struct {
-	r     *TSMReader
-	iter  *TSMIndexIterator
-	tr    TimeRange
-	err   error
-	stats cursors.CursorStats
-
-	// temporary storage
-	trbuf []TimeRange
-	buf   []byte
-	a     cursors.TimestampArray
-}
-
-func (b *TimeRangeIterator) Err() error {
-	if b.err != nil {
-		return b.err
-	}
-	return b.iter.Err()
+	timeRangeBlockReader
 }
 
 // Next advances the iterator and reports if it is still valid.
@@ -47,31 +31,15 @@ func (b *TimeRangeIterator) Seek(key []byte) (exact, ok bool) {
 	return b.iter.Seek(key)
 }
 
-// Key reports the current key.
-func (b *TimeRangeIterator) Key() []byte {
-	return b.iter.Key()
-}
-
-// Type reports the current block type.
-func (b *TimeRangeIterator) Type() byte {
-	return b.iter.Type()
-}
-
 // HasData reports true if the current key has data for the time range.
 func (b *TimeRangeIterator) HasData() bool {
 	if b.Err() != nil {
 		return false
 	}
 
-	e := excludeEntries(b.iter.Entries(), b.tr)
+	e, ts := b.getEntriesAndTombstones()
 	if len(e) == 0 {
 		return false
-	}
-
-	b.trbuf = b.r.TombstoneRange(b.iter.Key(), b.trbuf[:0])
-	var ts []TimeRange
-	if len(b.trbuf) > 0 {
-		ts = excludeTimeRanges(b.trbuf, b.tr)
 	}
 
 	if len(ts) == 0 {
@@ -110,9 +78,58 @@ func (b *TimeRangeIterator) HasData() bool {
 	return false
 }
 
+type timeRangeBlockReader struct {
+	r     *TSMReader
+	iter  *TSMIndexIterator
+	tr    TimeRange
+	err   error
+	stats cursors.CursorStats
+
+	// temporary storage
+	trbuf []TimeRange
+	buf   []byte
+	a     cursors.TimestampArray
+}
+
+func (b *timeRangeBlockReader) Err() error {
+	if b.err != nil {
+		return b.err
+	}
+	return b.iter.Err()
+}
+
+// Key reports the current key.
+func (b *timeRangeBlockReader) Key() []byte {
+	return b.iter.Key()
+}
+
+// Type reports the current block type.
+func (b *timeRangeBlockReader) Type() byte {
+	return b.iter.Type()
+}
+
+func (b *timeRangeBlockReader) getEntriesAndTombstones() ([]IndexEntry, []TimeRange) {
+	if b.err != nil {
+		return nil, nil
+	}
+
+	e := excludeEntries(b.iter.Entries(), b.tr)
+	if len(e) == 0 {
+		return nil, nil
+	}
+
+	b.trbuf = b.r.TombstoneRange(b.iter.Key(), b.trbuf[:0])
+	var ts []TimeRange
+	if len(b.trbuf) > 0 {
+		ts = excludeTimeRanges(b.trbuf, b.tr)
+	}
+
+	return e, ts
+}
+
 // readBlock reads the block identified by IndexEntry e and accumulates
 // statistics. readBlock returns true on success.
-func (b *TimeRangeIterator) readBlock(e *IndexEntry) bool {
+func (b *timeRangeBlockReader) readBlock(e *IndexEntry) bool {
 	_, b.buf, b.err = b.r.ReadBytes(e, b.buf)
 	if b.err != nil {
 		return false
@@ -129,7 +146,7 @@ func (b *TimeRangeIterator) readBlock(e *IndexEntry) bool {
 }
 
 // Stats returns statistics accumulated by the iterator for any block reads.
-func (b *TimeRangeIterator) Stats() cursors.CursorStats {
+func (b *timeRangeBlockReader) Stats() cursors.CursorStats {
 	return b.stats
 }
 
