@@ -149,7 +149,7 @@ func (e *Engine) MeasurementTagKeys(ctx context.Context, orgID, bucketID influxd
 	return e.tagKeysPredicate(ctx, orgID, bucketID, []byte(measurement), start, end, predicate)
 }
 
-func (e *Engine) MeasurementFields(ctx context.Context, orgID, bucketID influxdb.ID, measurement string, start, end int64, predicate influxql.Expr) (cursors.MeasurementFieldsCursor, error) {
+func (e *Engine) MeasurementFields(ctx context.Context, orgID, bucketID influxdb.ID, measurement string, start, end int64, predicate influxql.Expr) (cursors.MeasurementFieldsIterator, error) {
 	if predicate == nil {
 		return e.fieldsNoPredicate(ctx, orgID, bucketID, []byte(measurement), start, end)
 	}
@@ -157,8 +157,13 @@ func (e *Engine) MeasurementFields(ctx context.Context, orgID, bucketID influxdb
 	return nil, nil
 }
 
-func (e *Engine) fieldsNoPredicate(ctx context.Context, orgID influxdb.ID, bucketID influxdb.ID, measurement []byte, start int64, end int64) (cursors.MeasurementFieldsCursor, error) {
-	fieldTypes := make(map[string]cursors.FieldType)
+type fieldTypeTime struct {
+	typ cursors.FieldType
+	max int64
+}
+
+func (e *Engine) fieldsNoPredicate(ctx context.Context, orgID influxdb.ID, bucketID influxdb.ID, measurement []byte, start int64, end int64) (cursors.MeasurementFieldsIterator, error) {
+	tsmValues := make(map[string]fieldTypeTime)
 	orgBucket := tsdb.EncodeName(orgID, bucketID)
 
 	// TODO(edd): we need to clean up how we're encoding the prefix so that we
@@ -181,7 +186,7 @@ func (e *Engine) fieldsNoPredicate(ctx context.Context, orgID influxdb.ID, bucke
 		}
 		if f.OverlapsTimeRange(start, end) && f.OverlapsKeyPrefixRange(tsmKeyPrefix, tsmKeyPrefix) {
 			// TODO(sgc): create f.TimeRangeIterator(minKey, maxKey, start, end)
-			iter := f.TimeRangeIterator(tsmKeyPrefix, start, end)
+			iter := f.TimeRangeMaxTimeIterator(tsmKeyPrefix, start, end)
 			for i := 0; iter.Next(); i++ {
 				sfkey := iter.Key()
 				if !bytes.HasPrefix(sfkey, tsmKeyPrefix) {
@@ -189,13 +194,21 @@ func (e *Engine) fieldsNoPredicate(ctx context.Context, orgID influxdb.ID, bucke
 					break
 				}
 
-				_, fieldKey := SeriesAndFieldFromCompositeKey(sfkey)
-				if _, ok := fieldTypes[string(fieldKey)]; ok {
+				max := iter.MaxTime()
+				if max == InvalidMinNanoTime {
 					continue
 				}
 
-				if iter.HasData() {
-					fieldTypes[string(fieldKey)] = BlockTypeToFieldType(iter.Type())
+				_, fieldKey := SeriesAndFieldFromCompositeKey(sfkey)
+				v, ok := tsmValues[string(fieldKey)]
+				if !ok {
+					tsmValues[string(fieldKey)] = fieldTypeTime{
+						typ: BlockTypeToFieldType(iter.Type()),
+						max: max,
+					}
+				} else if v.max < max {
+					v.max = max
+					tsmValues[string(fieldKey)] = v
 				}
 			}
 			stats.Add(iter.Stats())
@@ -204,34 +217,48 @@ func (e *Engine) fieldsNoPredicate(ctx context.Context, orgID influxdb.ID, bucke
 	})
 
 	if canceled {
-		// return cursors.NewStringSliceIteratorWithStats(nil, stats), ctx.Err()
-		return nil, ctx.Err()
+		return cursors.NewMeasurementFieldsSliceIteratorWithStats(nil, stats), ctx.Err()
 	}
 
 	// With performance in mind, we explicitly do not check the context
 	// while scanning the entries in the cache.
-	tsmKeyprefixStr := string(tsmKeyPrefix)
+	tsmKeyPrefixStr := string(tsmKeyPrefix)
 	_ = e.Cache.ApplyEntryFn(func(sfkey string, entry *entry) error {
-		if !strings.HasPrefix(sfkey, tsmKeyprefixStr) {
-			return nil
-		}
-
-		// TODO(edd): consider the []byte() conversion here.
-		_, fieldKey := SeriesAndFieldFromCompositeKey([]byte(sfkey))
-		if _, ok := fieldTypes[string(fieldKey)]; ok {
+		if !strings.HasPrefix(sfkey, tsmKeyPrefixStr) {
 			return nil
 		}
 
 		stats.ScannedValues += entry.values.Len()
 		stats.ScannedBytes += entry.values.Len() * 8 // sizeof timestamp
 
-		if entry.values.Contains(start, end) {
-			fieldTypes[string(fieldKey)] = BlockTypeToFieldType(entry.BlockType())
+		if !entry.values.Contains(start, end) {
+			return nil
 		}
+
+		max := entry.values.MaxTime()
+
+		// TODO(edd): consider the []byte() conversion here.
+		_, fieldKey := SeriesAndFieldFromCompositeKey([]byte(sfkey))
+		v, ok := tsmValues[string(fieldKey)]
+		if !ok {
+			tsmValues[string(fieldKey)] = fieldTypeTime{
+				typ: BlockTypeToFieldType(entry.BlockType()),
+				max: max,
+			}
+		} else if v.max < max {
+			v.max = max
+			tsmValues[string(fieldKey)] = v
+		}
+
 		return nil
 	})
 
-	return nil, nil
+	vals := make([]cursors.MeasurementField, 0, len(tsmValues))
+	for key, val := range tsmValues {
+		vals = append(vals, cursors.MeasurementField{Key: key, Type: val.typ})
+	}
+
+	return cursors.NewMeasurementFieldsSliceIteratorWithStats([]cursors.MeasurementFields{{Fields: vals}}, stats), nil
 }
 
 func AddMeasurementToExpr(measurement string, base influxql.Expr) influxql.Expr {
