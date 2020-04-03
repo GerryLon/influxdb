@@ -944,7 +944,11 @@ func (m *Launcher) run(ctx context.Context) (err error) {
 
 	var onboardHTTPServer *tenant.OnboardHandler
 	{
-		onboardSvc := tenant.NewOnboardingLogger(m.log.With(zap.String("handler", "onboard")), tenant.NewOnboardingMetrics(m.reg, tenant.NewOnboardService(store, authSvc), tenant.WithSuffix("new")))
+		onboardSvc := tenant.NewOnboardService(store, authSvc)                                            // basic service
+		onboardSvc = tenant.NewAuthedOnboardSvc(onboardSvc)                                               // with auth
+		onboardSvc = tenant.NewOnboardingMetrics(m.reg, onboardSvc, tenant.WithSuffix("new"))             // with metrics
+		onboardSvc = tenant.NewOnboardingLogger(m.log.With(zap.String("handler", "onboard")), onboardSvc) // with logging
+
 		onboardHTTPServer = tenant.NewHTTPOnboardHandler(m.log, onboardSvc)
 	}
 

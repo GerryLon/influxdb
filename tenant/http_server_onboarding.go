@@ -88,7 +88,7 @@ func (h *OnboardHandler) handleInitialOnboardRequest(w http.ResponseWriter, r *h
 	}
 	h.log.Debug("Onboarding setup completed", zap.String("results", fmt.Sprint(results)))
 
-	h.api.Respond(w, http.StatusCreated, newOnboardingResponse(results))
+	h.api.Respond(w, http.StatusCreated, NewOnboardingResponse(results))
 }
 
 // isOnboarding is the HTTP handler for the POST /api/v2/setup route.
@@ -106,7 +106,7 @@ func (h *OnboardHandler) handleOnboardRequest(w http.ResponseWriter, r *http.Req
 	}
 	h.log.Debug("Onboarding setup completed", zap.String("results", fmt.Sprint(results)))
 
-	h.api.Respond(w, http.StatusCreated, newOnboardingResponse(results))
+	h.api.Respond(w, http.StatusCreated, NewOnboardingResponse(results))
 }
 
 type onboardingResponse struct {
@@ -116,7 +116,7 @@ type onboardingResponse struct {
 	Auth         *authResponse   `json:"auth"`
 }
 
-func newOnboardingResponse(results *influxdb.OnboardingResults) *onboardingResponse {
+func NewOnboardingResponse(results *influxdb.OnboardingResults) *onboardingResponse {
 	return &onboardingResponse{
 		User:         newUserResponse(results.User),
 		Bucket:       NewBucketResponse(results.Bucket),
